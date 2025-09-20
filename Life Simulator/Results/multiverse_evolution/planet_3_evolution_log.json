@@ -1,0 +1,38 @@
+[
+  {
+    "step": 100,
+    "modifications": [
+      "Increased mutation rate: 0.0200 \u2192 0.0220",
+      "Reduced environmental pressure: 0.100 \u2192 0.090"
+    ],
+    "trigger": "pop_trend=-1.99, div_trend=-0.35"
+  },
+  {
+    "step": 200,
+    "modifications": [
+      "Increased mutation rate: 0.0220 \u2192 0.0242"
+    ],
+    "trigger": "pop_trend=-0.90, div_trend=-0.85"
+  },
+  {
+    "step": 250,
+    "modifications": [
+      "Increased mutation rate: 0.0242 \u2192 0.0266"
+    ],
+    "trigger": "pop_trend=-0.92, div_trend=-0.92"
+  },
+  {
+    "step": 300,
+    "modifications": [
+      "Increased mutation rate: 0.0266 \u2192 0.0293"
+    ],
+    "trigger": "pop_trend=-0.43, div_trend=-0.58"
+  },
+  {
+    "step": 350,
+    "modifications": [
+      "Decreased mutation rate: 0.0293 \u2192 0.0278"
+    ],
+    "trigger": "pop_trend=1.87, div_trend=1.87"
+  }
+]
