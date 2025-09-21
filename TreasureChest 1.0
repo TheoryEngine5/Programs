@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>@NIS Dashboard Final</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/vis-network.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { margin:0; padding:0; font-family:'Segoe UI',sans-serif; background:#111; color:#fff; }
+#dashboard { display:flex; flex-direction:row; height:60vh; }
+#network { flex:1; border-right:2px solid #333; }
+#trends-container { flex:1; padding:10px; overflow:auto; background:#1a1a1a; }
+.nis-article { font-family:'Georgia','Times New Roman',serif; background:#1b1b1b; color:#f5f5f5; padding:20px 25px; margin:10px 0; border-left:5px solid #00ff99; border-radius:4px; }
+.nis-article h2 { font-size:1.8rem; margin-bottom:5px; color:#00ff99; border-bottom:1px solid #ffaa00; padding-bottom:3px; }
+.nis-article h3{ font-size:1.2rem; margin-top:15px; margin-bottom:8px; color:#ffcc00; border-bottom:1px dotted #555; padding-bottom:2px;}
+.nis-article p{margin:6px 0; line-height:1.6;}
+.nis-article strong{color:#ffcc00;}
+.archive-alert { color:#ff4444; font-weight:bold; margin-left:5px; display:inline-block;}
+.archive-alert.pulse { animation:pulse 1s ease-in-out 2; }
+@keyframes pulse { 0%{transform:scale(1);opacity:1;}50%{transform:scale(1.2);opacity:0.7;}100%{transform:scale(1);opacity:1;} }
+.archive-alert-highlight { background-color: rgba(255,68,68,0.3); transition: background-color 1.5s ease; border-radius:3px; }
+.daily-summary { background-color:#1a1a1a; border-top:3px solid #00ff99; padding:10px 15px; margin-top:15px; border-radius:4px; }
+.daily-summary h3 { color:#ffaa00; margin-bottom:8px; }
+.daily-summary span{ cursor:pointer; color:#00ff99; text-decoration:underline; margin-right:10px; transition:color 0.2s; }
+.daily-summary span:hover{ color:#ffcc00; }
+#mini-dashboard { background:#111; color:#fff; padding:12px 15px; border:2px solid #00ff99; border-radius:6px; margin-top:10px; font-family:'Georgia','Times New Roman',serif; }
+#history-log { background:#111; color:#fff; padding:10px 15px; border:2px solid #00ff99; border-radius:6px; margin-top:10px; font-family:'Georgia','Times New Roman',serif; max-height:200px; overflow-y:auto; }
+#rediscovered-explorer { background:#111; color:#fff; padding:12px 15px; border:2px solid #ffaa00; border-radius:6px; margin-top:10px; font-family:'Georgia','Times New Roman',serif; max-height:300px; overflow-y:auto; }
+.clickable-archive, .clickable-civ, .clickable-history{ cursor:pointer; color:#00ff99; text-decoration:underline; transition:color 0.2s;}
+.clickable-archive:hover, .clickable-civ:hover, .clickable-history:hover { color:#ffaa00; }
+#breaking-ticker{ width:100%; background:#330000; color:#ff4444; padding:6px 10px; font-family:'Georgia','Times New Roman',serif; overflow:hidden; white-space:nowrap; border-bottom:2px solid #ff4444; position:relative; }
+#breaking-ticker span{ display:inline-block; padding-right:50px; animation:scroll-left 15s linear infinite;}
+@keyframes scroll-left {0%{transform:translateX(100%);}100%{transform:translateX(-100%);}}
+#nis-filters {margin:10px 0; padding:10px; background:#111; border:2px solid #00ff99; border-radius:6px; color:#fff; font-family:'Georgia','Times New Roman',serif;}
+#reset-filters { padding:6px 12px; background:#00ff99; color:#111; border:none; border-radius:4px; cursor:pointer; font-family:'Georgia','Times New Roman',serif;}
+#chart-canvas { width:100%; height:300px; background:#222; border-radius:4px; margin-top:10px; }
+</style>
+</head>
+<body>
+
+<div id="nis-filters">
+  <label>Civilization: 
+    <select id="filter-civilization">
+      <option value="all">All</option>
+      <option value="Egyptian">Egyptian</option>
+      <option value="Mesopotamian">Mesopotamian</option>
+      <option value="Greek">Greek</option>
+      <option value="Maya">Maya</option>
+      <option value="Chinese">Chinese</option>
+      <option value="Indian">Indian</option>
+    </select>
+  </label>
+  &nbsp;|&nbsp;
+  <label>Archive Type: 
+    <select id="filter-archive">
+      <option value="all">All</option>
+      <option value="Tech">Technology</option>
+      <option value="Philosophy">Philosophy</option>
+      <option value="MathScience">Math & Science</option>
+    </select>
+  </label>
+  &nbsp;|&nbsp;
+  <label>Show: 
+    <select id="filter-alert">
+      <option value="all">All</option>
+      <option value="breaking">BREAKING Alerts Only</option>
+      <option value="emergent">Emergent Civilizations Only</option>
+    </select>
+  </label>
+  &nbsp; <button id="reset-filters">Reset Filters</button>
+</div>
+
+<div id="breaking-ticker"></div>
+<div id="article-container"></div>
+<div id="dashboard">
+  <div id="network"></div>
+  <div id="trends-container">
+    <canvas id="chart-canvas"></canvas>
+  </div>
+</div>
+<div id="mini-dashboard"></div>
+<div id="history-log"></div>
+<div id="rediscovered-explorer"></div>
+
+<script>
+// ======= NIS Data =======
+let civilizations=[
+  {id:1,label:'Egyptian',archives:['Pyramids','Hieroglyphs','Astronomy'],refinement:1.0},
+  {id:2,label:'Mesopotamian',archives:['Cuneiform','Ziggurats'],refinement:0.8},
+  {id:3,label:'Greek',archives:['Philosophy','Mathematics'],refinement:1.2},
+  {id:4,label:'Maya',archives:['Calendar','Astronomy'],refinement:0.9},
+  {id:5,label:'Chinese',archives:['Confucianism','Astronomy'],refinement:1.1},
+  {id:6,label:'Indian',archives:['Vedas','Mathematics'],refinement:1.0}
+];
+
+let archivesData={
+  'Pyramids':{description:'Ancient monumental architecture',correlations:['Astronomy'],discoveries:['Great Pyramid','Step Pyramid']},
+  'Hieroglyphs':{description:'Egyptian writing system',correlations:['Philosophy'],discoveries:['Rosetta Stone','Hieroglyphic script']},
+  'Astronomy':{description:'Observation of stars and planets',correlations:['Calendar','Mathematics'],discoveries:['Lunar calendar','Planetary tracking']},
+  'Cuneiform':{description:'Early writing system',correlations:['Mathematics'],discoveries:['Cuneiform tablets']},
+  'Ziggurats':{description:'Mesopotamian temple towers',correlations:['Pyramids'],discoveries:['Ziggurat at Babylon','Temple of Ur']},
+  'Philosophy':{description:'Greek philosophical thought',correlations:['Mathematics'],discoveries:['Socratic method','Plato\'s Academy']},
+  'Mathematics':{description:'Foundational numerical concepts',correlations:['Astronomy'],discoveries:['Pythagorean theorem','Geometry principles']},
+  'Calendar':{description:'Mayan astronomical calendar',correlations:['Astronomy'],discoveries:['Long Count calendar','Solar year calculation']},
+  'Confucianism':{description:'Chinese ethical-philosophical system',correlations:['Philosophy'],discoveries:['Analects of Confucius','Five relationships']},
+  'Vedas':{description:'Ancient Indian sacred texts',correlations:['Philosophy'],discoveries:['Concept of zero','Vedic mathematics']}
+};
+
+const archiveTypes = {'Pyramids':'Tech','Hieroglyphs':'Tech','Astronomy':'MathScience','Cuneiform':'Tech','Ziggurats':'Tech',
+  'Philosophy':'Philosophy','Mathematics':'MathScience','Calendar':'MathScience','Confucianism':'Philosophy','Vedas':'Philosophy'};
+
+let archiveProbabilities = {};
+let archiveTrends = {};
+let archiveAlerts = {};
+let historyLogData = [];
+let selectedNodes = [];
+let currentTooltipNode=null,currentTooltipEvent=null,currentTooltipContent=null;
+let autoExportIntervalMinutes = 5;
+let lastExportTime = Date.now();
+let network = null;
+let chart = null;
+
+// Initialize data
+Object.keys(archivesData).forEach(a=>{
+  archiveProbabilities[a]=Array(10).fill(0).map(()=>Math.random()*50+20);
+  archiveTrends[a]='stable';
+  archiveAlerts[a]='';
+});
+
+// ======= Network Visualization =======
+function initializeNetwork() {
+  const nodes = new vis.DataSet();
+  const edges = new vis.DataSet();
+  
+  // Add civilization nodes
+  civilizations.forEach(civ => {
+    nodes.add({
+      id: civ.id,
+      label: civ.label,
+      color: {background: '#00ff99', border: '#ffaa00'},
+      shape: 'circle',
+      size: 30,
+      font: {color: '#111', size: 12, face: 'Georgia'}
+    });
+  });
+  
+  // Add archive nodes and connections
+  let archiveId = 100;
+  Object.keys(archivesData).forEach(archive => {
+    nodes.add({
+      id: archiveId,
+      label: archive,
+      color: {background: '#ffaa00', border: '#00ff99'},
+      shape: 'box',
+      size: 20,
+      font: {color: '#111', size: 10, face: 'Georgia'}
+    });
+    
+    // Connect archives to civilizations
+    civilizations.forEach(civ => {
+      if (civ.archives.includes(archive)) {
+        edges.add({
+          from: civ.id,
+          to: archiveId,
+          color: {color: '#555'},
+          width: 2
+        });
+      }
+    });
+    
+    archiveId++;
+  });
+  
+  const container = document.getElementById('network');
+  const data = { nodes: nodes, edges: edges };
+  const options = {
+    nodes: { borderWidth: 2 },
+    edges: { smooth: true },
+    physics: { enabled: true, stabilization: {iterations: 100} },
+    interaction: { hover: true, selectConnectedEdges: false }
+  };
+  
+  network = new vis.Network(container, data, options);
+  
+  network.on('click', function(params) {
+    if (params.nodes.length > 0) {
+      focusNode(params.nodes[0]);
+    }
+  });
+}
+
+// ======= Chart Initialization =======
+function initializeChart() {
+  const ctx = document.getElementById('chart-canvas').getContext('2d');
+  const labels = Array(10).fill(0).map((_, i) => `T-${9-i}`);
+  
+  const datasets = Object.keys(archiveProbabilities).slice(0, 5).map((archive, i) => ({
+    label: archive,
+    data: archiveProbabilities[archive],
+    borderColor: ['#00ff99', '#ffaa00', '#ff4444', '#44ff44', '#ff44ff'][i],
+    backgroundColor: ['#00ff9920', '#ffaa0020', '#ff444420', '#44ff4420', '#ff44ff20'][i],
+    fill: false,
+    tension: 0.1
+  }));
+  
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: '#fff' }, grid: { color: '#333' } },
+        y: { ticks: { color: '#fff' }, grid: { color: '#333' }, min: 0, max: 100 }
+      },
+      plugins: {
+        legend: { labels: { color: '#fff' } }
+      }
+    }
+  });
+}
+
+// ======= Core Functions =======
+function generateArticleHTML() {
+  let html = '';
+  
+  civilizations.forEach(civ => {
+    const civFilter = document.getElementById('filter-civilization').value;
+    const alertFilter = document.getElementById('filter-alert').value;
+    
+    if (civFilter !== 'all' && civFilter !== civ.label) return;
+    
+    let hasBreaking = false;
+    let archiveContent = '';
+    
+    civ.archives.forEach(archive => {
+      const archiveFilter = document.getElementById('filter-archive').value;
+      if (archiveFilter !== 'all' && archiveFilter !== archiveTypes[archive]) return;
+      
+      const currentProb = archiveProbabilities[archive][archiveProbabilities[archive].length - 1];
+      const trend = archiveTrends[archive];
+      const alert = archiveAlerts[archive];
+      
+      if (alert.includes('BREAKING')) hasBreaking = true;
+      
+      if (alertFilter === 'breaking' && !alert.includes('BREAKING')) return;
+      if (alertFilter === 'emergent' && !alert.includes('EMERGENT')) return;
+      
+      archiveContent += `
+        <h3>${archive} <span class="clickable-archive" onclick="focusArchive('${archive}')">[Focus]</span></h3>
+        <p><strong>Current Discovery Probability:</strong> ${currentProb.toFixed(1)}%</p>
+        <p><strong>Trend:</strong> ${trend}</p>
+        <p><strong>Description:</strong> ${archivesData[archive].description}</p>
+        ${alert ? `<span class="archive-alert">${alert}</span>` : ''}
+      `;
+    });
+    
+    if (alertFilter === 'breaking' && !hasBreaking) return;
+    if (archiveContent === '') return;
+    
+    html += `
+      <div class="nis-article">
+        <h2>${civ.label} Civilization <span class="clickable-civ" onclick="focusCivilization('${civ.label}')">[Focus Network]</span></h2>
+        <p><strong>Refinement Factor:</strong> ${civ.refinement}</p>
+        ${archiveContent}
+        ${generateDailySummary(civ)}
+      </div>
+    `;
+  });
+  
+  return html || '<div class="nis-article"><h2>No Results</h2><p>No civilizations match current filters.</p></div>';
+}
+
+function generateDailySummary(civ) {
+  const summaries = [
+    `Recent excavations in ${civ.label} territories reveal new architectural patterns.`,
+    `Cross-referencing ${civ.label} archives with neighboring civilizations shows unexpected correlations.`,
+    `Discovery probability matrices for ${civ.label} archives show fluctuating patterns.`,
+    `Field teams report increased activity in ${civ.label} archaeological sites.`,
+    `Statistical models predict breakthrough discoveries in ${civ.label} archives within next cycle.`
+  ];
+  
+  const randomSummary = summaries[Math.floor(Math.random() * summaries.length)];
+  
+  return `
+    <div class="daily-summary">
+      <h3>Daily Intelligence Summary</h3>
+      <p>${randomSummary}</p>
+      <span onclick="exportHistoryLog()">Export Log</span>
+      <span onclick="focusCivilization('${civ.label}')">Focus Network</span>
+    </div>
+  `;
+}
+
+function filterArticleAndSidebar() {
+  document.getElementById('article-container').innerHTML = generateArticleHTML();
+}
+
+function resetFilters() {
+  document.getElementById('filter-civilization').value = 'all';
+  document.getElementById('filter-archive').value = 'all';
+  document.getElementById('filter-alert').value = 'all';
+  filterArticleAndSidebar();
+}
+
+function focusNode(nodeId) {
+  if (network) {
+    network.focus(nodeId, {
+      scale: 1.5,
+      animation: { duration: 1000, easingFunction: 'easeInOutQuad' }
+    });
+    selectedNodes = [nodeId];
+  }
+}
+
+function focusCivilization(civName) {
+  const civ = civilizations.find(c => c.label === civName);
+  if (civ) {
+    focusNode(civ.id);
+    historyLogData.push(`${new Date().toLocaleTimeString()}: Focused on ${civName} civilization network`);
+  }
+}
+
+function focusArchive(archiveName) {
+  historyLogData.push(`${new Date().toLocaleTimeString()}: Analyzed ${archiveName} archive data`);
+  updateHistoryLog();
+}
+
+function animateNewAlerts() {
+  document.querySelectorAll('.archive-alert').forEach(alert => {
+    if (alert.textContent.includes('BREAKING') && Math.random() < 0.3) {
+      alert.classList.add('pulse');
+      alert.parentElement.classList.add('archive-alert-highlight');
+      
+      setTimeout(() => {
+        alert.classList.remove('pulse');
+        alert.parentElement.classList.remove('archive-alert-highlight');
+      }, 2000);
+    }
+  });
+}
+
+function updateArchiveProbabilities() {
+  Object.keys(archiveProbabilities).forEach(archive => {
+    const current = archiveProbabilities[archive];
+    const lastValue = current[current.length - 1];
+    const change = (Math.random() - 0.5) * 10;
+    const newValue = Math.max(0, Math.min(100, lastValue + change));
+    
+    current.shift();
+    current.push(newValue);
+    
+    // Update trends
+    const recentAvg = current.slice(-3).reduce((a, b) => a + b) / 3;
+    const olderAvg = current.slice(-6, -3).reduce((a, b) => a + b) / 3;
+    
+    if (recentAvg > olderAvg + 5) {
+      archiveTrends[archive] = 'rising';
+      if (newValue > 80 && Math.random() < 0.1) {
+        archiveAlerts[archive] = 'BREAKING: Discovery probability critical!';
+      }
+    } else if (recentAvg < olderAvg - 5) {
+      archiveTrends[archive] = 'declining';
+    } else {
+      archiveTrends[archive] = 'stable';
+      archiveAlerts[archive] = '';
+    }
+    
+    // Emergent civilization alerts
+    if (newValue > 90 && Math.random() < 0.05) {
+      archiveAlerts[archive] = 'EMERGENT: Civilization breakthrough detected!';
+    }
+  });
+  
+  // Update chart
+  if (chart) {
+    chart.data.datasets.forEach((dataset, i) => {
+      const archiveName = Object.keys(archiveProbabilities)[i];
+      if (archiveName) {
+        dataset.data = [...archiveProbabilities[archiveName]];
+      }
+    });
+    chart.update('none');
+  }
+}
+
+function updateBreakingTicker() {
+  const breakingNews = [];
+  
+  Object.keys(archiveAlerts).forEach(archive => {
+    if (archiveAlerts[archive].includes('BREAKING') || archiveAlerts[archive].includes('EMERGENT')) {
+      breakingNews.push(`${archive}: ${archiveAlerts[archive]}`);
+    }
+  });
+  
+  if (breakingNews.length === 0) {
+    breakingNews.push('NIS monitoring all archaeological networks... Stand by for updates...');
+  }
+  
+  const ticker = document.getElementById('breaking-ticker');
+  ticker.innerHTML = `<span>${breakingNews.join(' • ')}</span>`;
+}
+
+function updateMiniDashboard() {
+  const totalArchives = Object.keys(archivesData).length;
+  const activeAlerts = Object.values(archiveAlerts).filter(alert => alert !== '').length;
+  const avgProbability = Object.values(archiveProbabilities).reduce((sum, probs) => {
+    return sum + probs[probs.length - 1];
+  }, 0) / totalArchives;
+  
+  const risingTrends = Object.values(archiveTrends).filter(trend => trend === 'rising').length;
+  
+  document.getElementById('mini-dashboard').innerHTML = `
+    <h3>🔍 NIS Quick Stats</h3>
+    <p><strong>Active Archives:</strong> ${totalArchives} | <strong>Alerts:</strong> ${activeAlerts}</p>
+    <p><strong>Avg Discovery Probability:</strong> ${avgProbability.toFixed(1)}%</p>
+    <p><strong>Rising Trends:</strong> ${risingTrends}/${totalArchives}</p>
+    <p><strong>Network Status:</strong> <span style="color: #00ff99;">OPERATIONAL</span></p>
+  `;
+}
+
+function updateHistoryLog() {
+  const logContainer = document.getElementById('history-log');
+  if (historyLogData.length > 20) {
+    historyLogData = historyLogData.slice(-20);
+  }
+  
+  logContainer.innerHTML = `
+    <h3>📜 Activity History</h3>
+    ${historyLogData.slice(-10).reverse().map(entry => 
+      `<p style="margin:2px 0; font-size:0.9em;">${entry}</p>`
+    ).join('')}
+  `;
+  
+  logContainer.scrollTop = 0;
+}
+
+function exportHistoryLog() {
+  const dataStr = JSON.stringify(historyLogData, null, 2);
+  const dataBlob = new Blob([dataStr], {type: 'application/json'});
+  const url = URL.createObjectURL(dataBlob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `nis_history_${new Date().toISOString().split('T')[0]}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+  
+  historyLogData.push(`${new Date().toLocaleTimeString()}: History log exported`);
+}
+
+function autoExportHistoryLog() {
+  if (Date.now() - lastExportTime > autoExportIntervalMinutes * 60 * 1000) {
+    exportHistoryLog();
+    lastExportTime = Date.now();
+  }
+}
+
+function updateRediscoveredExplorer() {
+  const discoveries = [];
+  
+  Object.keys(archivesData).forEach(archive => {
+    const prob = archiveProbabilities[archive][archiveProbabilities[archive].length - 1];
+    const civ = civilizations.find(c => c.archives.includes(archive));
+    const type = archiveTypes[archive];
+    
+    archivesData[archive].discoveries.forEach(discovery => {
+      discoveries.push({
+        name: discovery,
+        archive: archive,
+        civilization: civ ? civ.label : 'Unknown',
+        type: type,
+        probability: prob,
+        trend: archiveTrends[archive]
+      });
+    });
+  });
+  
+  // Apply filters
+  const civFilter = document.getElementById('filter-civilization').value;
+  const typeFilter = document.getElementById('filter-archive').value;
+  
+  const filteredDiscoveries = discoveries.filter(d => {
+    if (civFilter !== 'all' && d.civilization !== civFilter) return false;
+    if (typeFilter !== 'all' && d.type !== typeFilter) return false;
+    return true;
+  });
+  
+  // Sort by probability
+  filteredDiscoveries.sort((a, b) => b.probability - a.probability);
+  
+  const explorerContainer = document.getElementById('rediscovered-explorer');
+  explorerContainer.innerHTML = `
+    <h3>🏛️ Discovery Explorer</h3>
+    <p style="margin-bottom:10px; font-size:0.9em;">Sorted by discovery probability:</p>
+    ${filteredDiscoveries.slice(0, 15).map(d => `
+      <p style="margin:3px 0; padding:5px; background:#1a1a1a; border-radius:3px; font-size:0.85em;">
+        <strong style="color:#00ff99;">${d.name}</strong> 
+        <span style="color:#ffaa00;">(${d.civilization})</span><br>
+        Archive: ${d.archive} | Type: ${d.type} | 
+        Probability: <span style="color:${d.probability > 70 ? '#00ff99' : d.probability > 40 ? '#ffaa00' : '#ff4444'};">${d.probability.toFixed(1)}%</span> |
+        Trend: ${d.trend}
+      </p>
+    `).join('')}
+  `;
+}
+
+// ======= Initialize Everything =======
+document.addEventListener('DOMContentLoaded', function() {
+  initializeNetwork();
+  initializeChart();
+  filterArticleAndSidebar();
+  updateMiniDashboard();
+  updateHistoryLog();
+  updateRediscoveredExplorer();
+  
+  // Add some initial history
+  historyLogData.push(`${new Date().toLocaleTimeString()}: NIS Dashboard initialized`);
+  historyLogData.push(`${new Date().toLocaleTimeString()}: Network visualization loaded`);
+  historyLogData.push(`${new Date().toLocaleTimeString()}: Monitoring ${Object.keys(archivesData).length} archives`);
+});
+
+// ======= Event listeners =======
+document.getElementById('filter-civilization').addEventListener('change', filterArticleAndSidebar);
+document.getElementById('filter-archive').addEventListener('change', filterArticleAndSidebar);
+document.getElementById('filter-alert').addEventListener('change', filterArticleAndSidebar);
+document.getElementById('reset-filters').addEventListener('click', resetFilters);
+document.addEventListener('keydown', e=>{if(e.key.toLowerCase()==='r') resetFilters();});
+
+// ======= Main interval =======
+setInterval(()=>{
+  updateArchiveProbabilities();
+  updateBreakingTicker();
+  filterArticleAndSidebar();
+  animateNewAlerts();
+  updateMiniDashboard();
+  updateHistoryLog();
+  autoExportHistoryLog();
+  updateRediscoveredExplorer();
+}, 2000);
+
+// Add random activity to history log
+setInterval(() => {
+  const activities = [
+    'Archaeological scan completed',
+    'Cross-correlation analysis updated',
+    'Network topology recalculated',
+    'Probability matrices refreshed',
+    'Discovery patterns analyzed',
+    'Archive integrity verified',
+    'Civilization data synchronized'
+  ];
+  
+  if (Math.random() < 0.3) {
+    const activity = activities[Math.floor(Math.random() * activities.length)];
+    historyLogData.push(`${new Date().toLocaleTimeString()}: ${activity}`);
+  }
+}, 5000);
+</script>
+</body>
+</html>
